@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>立方体罫線ジェネレータ（試作版）</title>
+<style>
+.setting-list {
+	display: flex;
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.setting-list > li {
+	margin: 0 1ex;
+}
+
+.setting-list input[type=number] {
+	width: 10ex;
+}
+</style>
+
+<h1>立方体罫線ジェネレータ（試作版）</h1>
+
+<div>
+	<details>
+		<summary>余白</summary>
+		<ul class="setting-list">
+			<li>上(mm): <input id="margin-top" type="number" value="10" min="0" step="1"></li>
+			<li>左(mm): <input id="margin-left" type="number" value="10" min="0" step="1"></li>
+			<li>右(mm): <input id="margin-right" type="number" value="10" min="0" step="1"></li>
+			<li>下(mm): <input id="margin-bottom" type="number" value="10" min="0" step="1"></li>
+		</ul>
+	</details>
+	<details>
+		<summary>盤面</summary>
+		<ul class="setting-list">
+			<li>左下盤面のタテ(マス): <input id="board-down-height" type="number" value="5" min="0" step="1"></li>
+			<li>左下盤面のヨコ(マス): <input id="board-left-width" type="number" value="5" min="0" step="1"></li>
+			<li>右下盤面のヨコ(マス): <input id="board-right-width" type="number" value="5" min="0" step="1"></li>
+		</ul>
+		<ul class="setting-list">
+			<li>盤面外の左(マス): <input id="board-left" type="number" value="0" min="0" step="1"></li>
+			<li>盤面外の右(マス): <input id="board-right" type="number" value="0" min="0" step="1"></li>
+			<li>盤面外の下(マス): <input id="board-down" type="number" value="0" min="0" step="1"></li>
+		</ul>
+	</details>
+	<details>
+		<summary>マス</summary>
+		<ul class="setting-list">
+			<li>
+				<select id="cell-measuring">
+					<option value="side" selected>一辺の長さ</option>
+					<option value="thickness">向かい合う辺の距離</option>
+				</select>
+			</li>
+			<li>サイズ(mm): <input id="cell-size" type="number" value="10" min="0" step="0.1"></li>
+		</ul>
+		<ul class="setting-list">
+			<li>
+				<select id="cell-back">
+					<option value="none" selected>透明</option>
+					<option value="fill">塗りつぶし</option>
+				</select>
+			</li>
+			<li>色: <input id="cell-color" type="text" value="#ffffff"></li>
+			<li>不透明度(%): <input id="cell-opacity" type="number" value="100" min="0" max="100" step="1"></li>
+		</ul>
+	</details>
+	<details>
+		<summary>罫線</summary>
+		<ul class="setting-list">
+			<li>
+				<select id="rule">
+					<option value="none">なし</option>
+					<option value="line" selected>実線</option>
+					<option value="dash">四角破線</option>
+					<option value="round">丸破線</option>
+				</select>
+			</li>
+			<li>幅(mm): <input id="rule-width" type="number" value="0.2" min="0" step="0.01"></li>
+			<li>色: <input id="rule-color" type="text" value="#000000"></li>
+			<li>不透明度(%): <input id="rule-opacity" type="number" value="100" min="0" max="100" step="1"></li>
+		</ul>
+		<ul class="setting-list">
+			<li>破線の数: <input id="dash-count" type="number" value="5" min="0" step="1"></li>
+			<li>破線の長さ比(%): <input id="dash-length" type="number" value="50" min="0" max="100" step="1"></li>
+		</ul>
+	</details>
+	<details>
+		<summary>枠線</summary>
+		<ul class="setting-list">
+			<li>
+				<select id="border">
+					<option value="none">なし</option>
+					<option value="line" selected>実線</option>
+				</select>
+			</li>
+			<li>幅(mm): <input id="border-width" type="number" value="1" min="0" step="0.1"></li>
+			<li>色: <input id="border-color" type="text" value="#000000"></li>
+			<li>不透明度(%): <input id="border-opacity" type="number" value="100" min="0" max="100" step="1"></li>
+		</ul>
+	</details>
+</div>
+
+<div id="svg-area">
+	<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1"></svg>
+</div>
+
+<div>
+	<input id="save-name" placeholder="ファイル名">
+	<button id="save">保存</button>
+</div>
+
+
+<script>
+const $ = selector => document.querySelector(selector)
+
+const createElement = (type, attributes = {}) => {
+	const element = document.createElement(type)
+	for (const [key, value] of Object.entries(attributes)) {
+		element.setAttribute(key, value)
+	}
+	return element
+}
+
+const createSVGElement = (type, attributes = {}) => {
+	const element = document.createElementNS('http://www.w3.org/2000/svg', type)
+	for (const [key, value] of Object.entries(attributes)) {
+		element.setAttribute(key, value)
+	}
+	return element
+}
+
+// 小数第三位に丸める。
+const round = v => Math.round(v * 1000) / 1000
+
+const getParams = () => {
+	return {
+		margin: {
+			top: Number($('#margin-top').value),
+			left: Number($('#margin-left').value),
+			right: Number($('#margin-right').value),
+			bottom: Number($('#margin-bottom').value),
+		},
+		board: {
+			downHeight: Number($('#board-down-height').value),
+			leftWidth: Number($('#board-left-width').value),
+			rightWidth: Number($('#board-right-width').value),
+			left: Number($('#board-left').value),
+			right: Number($('#board-right').value),
+			down: Number($('#board-down').value),
+		},
+		cell: {
+			measuring: $('#cell-measuring').value,
+			size: Number($('#cell-size').value),
+			back: $('#cell-back').value,
+			color: $('#cell-color').value,
+			opacity: Number($('#cell-opacity').value),
+		},
+		rule: {
+			rule: $('#rule').value,
+			width: Number($('#rule-width').value),
+			color: $('#rule-color').value,
+			opacity: Number($('#rule-opacity').value),
+			dashCount: Number($('#dash-count').value),
+			dashLength: Number($('#dash-length').value),
+		},
+		border: {
+			border: $('#border').value,
+			width: Number($('#border-width').value),
+			color: $('#border-color').value,
+			opacity: Number($('#border-opacity').value),
+		},
+	}
+}
+
+const updateSVG = () => {
+	const { margin, board, cell, rule, border } = getParams()
+
+	// セルサイズを計算。
+	if (cell.measuring === 'side') {
+		Object.assign(cell, {
+			side2: round(cell.size / 2),
+			side: round(round(cell.size / 2) * 2),
+			thickness: round(cell.size * (3**0.5) / 2),
+		})
+	} else {
+		Object.assign(cell, {
+			side2: round(cell.size / (3**0.5)),
+			side: round(round(cell.size / (3**0.5)) * 2),
+			thickness: round(cell.size),
+		})
+	}
+
+	// 盤面外を含めたマス数を計算。
+	const main = {
+		leftWidth: board.left + board.leftWidth,
+		rightWidth: board.right + board.rightWidth,
+		downHeight: board.down + board.downHeight,
+	}
+
+	// 上、左下、右下の各盤面の基準点（正方形盤面における左上マスの左上頂点）を計算。
+	const uBoard = {
+		x: round(margin.left + cell.thickness * main.rightWidth),
+		y: round(margin.top),
+	}
+	const lBoard = {
+		x: round(margin.left),
+		y: round(margin.top + cell.side2 * main.rightWidth),
+	}
+	const rBoard = {
+		x: round(margin.left + cell.thickness * main.leftWidth),
+		y: round(margin.top + cell.side2 * (main.leftWidth + main.rightWidth)),
+	}
+
+	const svgWidth = round(
+		margin.left + margin.right +
+		cell.thickness * (main.leftWidth + main.rightWidth)
+	)
+	const svgHeight = round(
+		margin.top + margin.bottom +
+		cell.side2 * (main.downHeight * 2 + main.leftWidth + main.rightWidth)
+	)
+
+	const svg = $('#svg-area > *')
+	svg.textContent = ''
+	svg.setAttribute('width', `${ svgWidth }mm`)
+	svg.setAttribute('height', `${ svgHeight }mm`)
+	svg.setAttribute('viewBox', `0 0 ${ svgWidth } ${ svgHeight }`)
+	const g = createSVGElement('g')
+	svg.appendChild(g)
+
+	const getCellParam = (line = 'none') => {
+		const param = {}
+		if (cell.back === 'none') {
+			Object.assign(param, {
+				fill: 'none',
+			})
+		} else {
+			Object.assign(param, {
+				fill: cell.color,
+			})
+			if (cell.opacity < 100) {
+				Object.assign(param, {
+					'fill-opacity': cell.opacity / 100,
+				})
+			}
+		}
+
+		if (line === 'line' || line === 'dash' || line === 'round') {
+			Object.assign(param, {
+				stroke: rule.color,
+				'stroke-width': rule.width,
+			})
+			if (rule.opacity < 100) {
+				Object.assign(param, {
+					'stroke-opacity': rule.opacity / 100,
+				})
+			}
+		}
+
+		if (line === 'dash' || line === 'round') {
+			Object.assign(param, {
+				'stroke-dasharray': `${
+					cell.side * rule.dashLength / (rule.dashCount * 100)
+				} ${
+					cell.side * (100 - rule.dashLength) / (rule.dashCount * 100)
+				}`,
+				'stroke-dashoffset': cell.side * rule.dashLength / (rule.dashCount * 200),
+			})
+		}
+
+		if (line === 'round') {
+			Object.assign(param, {
+				'stroke-linecap': 'round',
+			})
+		}
+
+		return param
+	}
+
+	const getUpCellParam = (x, y, line) => Object.assign(getCellParam(line), {
+		d: [
+			'M', x, y,
+			'l', cell.thickness, cell.side2,
+			'l', -cell.thickness, cell.side2,
+			'l', -cell.thickness, -cell.side2,
+			'z'
+		].join(' ')
+	})
+	const getLeftCellParam = (x, y, line) => Object.assign(getCellParam(line), {
+		d: [
+			'M', x, y,
+			'l', cell.thickness, cell.side2,
+			'l', 0, cell.side,
+			'l', -cell.thickness, -cell.side2,
+			'z'
+		].join(' ')
+	})
+	const getRightCellParam = (x, y, line) => Object.assign(getCellParam(line), {
+		d: [
+			'M', x, y,
+			'l', cell.thickness, -cell.side2,
+			'l', 0, cell.side,
+			'l', -cell.thickness, cell.side2,
+			'z'
+		].join(' ')
+	})
+
+	// 盤面外のマスを描画。
+	for (let j = 0; j < main.rightWidth; j++) {
+		for (let i = 0; i < main.leftWidth; i++) {
+			if (j < board.right || i < board.left) {
+				g.appendChild(createSVGElement('path', getUpCellParam(
+					round(uBoard.x + i * cell.thickness - j * cell.thickness),
+					round(uBoard.y + i * cell.side2 + j * cell.side2),
+				)))
+			}
+		}
+	}
+	for (let j = 0; j < main.downHeight; j++) {
+		for (let i = 0; i < main.leftWidth; i++) {
+			if (j >= board.downHeight || i < board.left) {
+				g.appendChild(createSVGElement('path', getLeftCellParam(
+					round(lBoard.x + i * cell.thickness),
+					round(lBoard.y + i * cell.side2 + j * cell.side),
+				)))
+			}
+		}
+	}
+	for (let j = 0; j < main.downHeight; j++) {
+		for (let i = 0; i < main.rightWidth; i++) {
+			if (j >= board.downHeight || i >= board.rightWidth) {
+				g.appendChild(createSVGElement('path', getRightCellParam(
+					round(rBoard.x + i * cell.thickness),
+					round(rBoard.y - i * cell.side2 + j * cell.side),
+				)))
+			}
+		}
+	}
+
+	// 盤面内のマスを描画。
+	for (let j = 0; j < main.rightWidth; j++) {
+		for (let i = 0; i < main.leftWidth; i++) {
+			if (j < board.right || i < board.left) continue
+			g.appendChild(createSVGElement('path', getUpCellParam(
+				round(uBoard.x + i * cell.thickness - j * cell.thickness),
+				round(uBoard.y + i * cell.side2 + j * cell.side2),
+				rule.rule
+			)))
+		}
+	}
+	for (let j = 0; j < main.downHeight; j++) {
+		for (let i = 0; i < main.leftWidth; i++) {
+			if (j >= board.downHeight || i < board.left) continue
+			g.appendChild(createSVGElement('path', getLeftCellParam(
+				round(lBoard.x + i * cell.thickness),
+				round(lBoard.y + i * cell.side2 + j * cell.side),
+				rule.rule
+			)))
+		}
+	}
+	for (let j = 0; j < main.downHeight; j++) {
+		for (let i = 0; i < main.rightWidth; i++) {
+			if (j >= board.downHeight || i >= board.rightWidth) continue
+			g.appendChild(createSVGElement('path', getRightCellParam(
+				round(rBoard.x + i * cell.thickness),
+				round(rBoard.y - i * cell.side2 + j * cell.side),
+				rule.rule
+			)))
+		}
+	}
+
+	// 枠線を描画。
+	if (border.border === 'line') {
+		const param = {
+			d: [
+				'M',
+				round(uBoard.x + board.left * cell.thickness - board.right * cell.thickness),
+				round(uBoard.y + board.left * cell.side2 + board.right * cell.side2),
+				'l',
+				round(board.leftWidth * cell.thickness),
+				round(board.leftWidth * cell.side2),
+				'l',
+				0,
+				round(board.downHeight * cell.side),
+				'l',
+				round(-board.rightWidth * cell.thickness),
+				round(board.rightWidth * cell.side2),
+				'l',
+				round(-board.leftWidth * cell.thickness),
+				round(-board.leftWidth * cell.side2),
+				'l',
+				0,
+				round(-board.downHeight * cell.side),
+				'z'
+			].join(' '),
+			stroke: border.color,
+			'stroke-width': border.width,
+			fill: 'none',
+		}
+		if (border.opacity < 100) {
+			Object.assign(param, {
+				'stroke-opacity': border.opacity / 100,
+			})
+		}
+		g.appendChild(createSVGElement('path', param))
+	}
+}
+
+const inputElements = [
+	$('#margin-top'),
+	$('#margin-left'),
+	$('#margin-right'),
+	$('#margin-bottom'),
+	$('#board-down-height'),
+	$('#board-left-width'),
+	$('#board-right-width'),
+	$('#board-left'),
+	$('#board-right'),
+	$('#board-down'),
+	$('#cell-measuring'),
+	$('#cell-size'),
+	$('#cell-back'),
+	$('#cell-color'),
+	$('#cell-opacity'),
+	$('#rule'),
+	$('#rule-width'),
+	$('#rule-color'),
+	$('#rule-opacity'),
+	$('#dash-count'),
+	$('#dash-length'),
+	$('#border'),
+	$('#border-width'),
+	$('#border-color'),
+	$('#border-opacity'),
+]
+
+for (const element of inputElements) {
+	element.addEventListener('input', updateSVG)
+}
+
+$('#save').addEventListener('click', () => {
+	const blob = new Blob(['<?xml version="1.0" standalone="no"?>\n' + $('#svg-area > *').outerHTML], { type: 'image/svg+xml' })
+	const objectURL = URL.createObjectURL(blob)
+	const a = createElement('a', {
+		href: objectURL,
+		download: $('#save-name').value,
+	})
+	a.click()
+	URL.revokeObjectURL(objectURL)
+})
+
+updateSVG()
+</script>
